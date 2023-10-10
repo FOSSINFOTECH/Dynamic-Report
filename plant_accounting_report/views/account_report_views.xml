@@ -1,0 +1,32 @@
+<odoo>
+	<menuitem
+        id="plant_account_reports"
+        sequence="16"
+        name="Plant Accounting Reports"
+        parent="account.menu_finance_reports"
+    />
+
+	<template
+        id="assets_backend"
+        name="plant_accounting_report assets"
+        inherit_id="web.assets_backend"
+    >
+        <xpath expr="." position="inside">
+            <link
+                rel="stylesheet"
+                type="text/scss"
+                href="/plant_accounting_report/static/src/scss/dynamic_common_style.scss"
+            />
+            <script
+                type="text/javascript"
+                src="/plant_accounting_report/static/src/js/select2.full.min.js"
+            />
+            <script
+                type="text/javascript"
+                src="/plant_accounting_report/static/src/js/script.js"
+            />
+        </xpath>
+    </template>
+
+
+</odoo>

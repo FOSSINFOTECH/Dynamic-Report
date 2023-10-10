@@ -1,0 +1,23 @@
+<odoo>
+	<report
+        id="action_ins_trial_balance_aa_xlsx"
+        model="ins.trial.balance.aa.account"
+        string="Trial Balance AA"
+        report_type="xlsx"
+        name="plant_accounting_report.trial_balance_xlsx_aa_account"
+        file="plant_accounting_report.trial_balance_xlsx_aa_account"
+        attachment_use="False"
+        print_report_name="'Plant wise TrialBalance - %s/%s' % (object.date_from,object.date_to)"
+    />
+
+    <report
+        id="action_ins_financial_report_aa_xlsx"
+        model="ins.financial.report.aa"
+        string="Financial Report"
+        report_type="xlsx"
+        name="plant_accounting_report.ins_financial_xlsx_aa_account"
+        file="plant_accounting_report.ins_financial_xlsx_aa_account"
+        attachment_use="False"
+        print_report_name="'Plant wise FinancialReport - %s/%s' % (object.date_from,object.date_to)"
+    />
+</odoo>
