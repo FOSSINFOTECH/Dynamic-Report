@@ -443,6 +443,11 @@ class InsTrialBalance(models.TransientModel):
             if not data.get("analytic_ids"):
                 data["analytic_ids"] = self._get_analytic_account().ids
 
+            if data.get("analytic_ids", []):
+                WHERE += " AND anl.id IN %s" % str(
+                    tuple(data.get("analytic_ids")) + tuple([0])
+                )
+
             analytic_datas = aa_obj.browse(data.get("analytic_ids", []))
             for analytic_acc_id in analytic_datas:
                 analytic_dict_name_data.update(
@@ -603,11 +608,6 @@ class InsTrialBalance(models.TransientModel):
 
                 WHERE_ANL_CLOSING = WHERE + " AND l.date <= '%s'" % data.get("date_to")
                 WHERE_ANL_CLOSING += " AND l.account_id = %s" % account.id
-
-                if data.get("analytic_ids", []):
-                    WHERE_ANL_CLOSING += " AND anl.id IN %s" % str(
-                        tuple(data.get("analytic_ids")) + tuple([0])
-                    )
 
                 sql = (
                     (
