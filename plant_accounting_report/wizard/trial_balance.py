@@ -504,8 +504,6 @@ class InsTrialBalance(models.TransientModel):
                 )
                 WHERE_INIT = WHERE + " AND l.date < '%s'" % data.get("date_from")
                 WHERE_INIT += " AND l.account_id = %s" % account.id
-                if account.user_type_id.internal_group in ("income", "expense"):
-                    WHERE_INIT += " AND l.date >= '2023-04-01' "
 
                 init_blns = 0.0
                 deb = 0.0
@@ -546,20 +544,16 @@ class InsTrialBalance(models.TransientModel):
                         "initial_credit"
                     ]
 
-                if account.user_type_id.include_initial_balance and self.strict_range:
-                    move_lines[account.code]["initial_balance"] = 0.0
-                    move_lines[account.code]["initial_debit"] = 0.0
-                    move_lines[account.code]["initial_credit"] = 0.0
-
-                    if (
-                        self.strict_range
-                        and account.user_type_id
-                        != self.env.ref("account.data_unaffected_earnings")
-                        and init_blns
-                    ):
-                        retained_earnings += init_blns["initial_balance"]
-                        retained_credit += init_blns["initial_credit"]
-                        retained_debit += init_blns["initial_debit"]
+                if (
+                    account.user_type_id.include_initial_balance
+                    and self.strict_range
+                    and account.user_type_id
+                    != self.env.ref("account.data_unaffected_earnings")
+                    and init_blns
+                ):
+                    retained_earnings += init_blns["initial_balance"]
+                    retained_credit += init_blns["initial_credit"]
+                    retained_debit += init_blns["initial_debit"]
                 if init_blns:
                     total_init_deb += init_blns["initial_debit"]
                     total_init_cre += init_blns["initial_credit"]
