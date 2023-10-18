@@ -1880,6 +1880,11 @@ View General Ledger
                                 <td class="amt bld">
                                     <t t-raw="retained[account]['ending_balance']" />
                                 </td>
+                                <t t-foreach="dr_cr_bal_dict" t-as="aa_dict_key">
+                                    <td class="amt">
+                                        <t t-raw="retained[account][aa_dict_key]" />
+                                    </td>
+                                </t>
                             </tr>
                         </t>
                     </t>

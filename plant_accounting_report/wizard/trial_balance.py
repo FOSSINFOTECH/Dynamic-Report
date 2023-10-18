@@ -415,6 +415,31 @@ class InsTrialBalance(models.TransientModel):
             return sorted(hirarchy_list, key=itemgetter("code"))
         return []
 
+    def _get_analytic_account_query(self, where_clause):
+        analytic_account_query = (
+            (
+                """
+                    SELECT
+                        account_id as id,
+                        l.analytic_account_id as anl_id,
+                        COALESCE(SUM(l.debit),0) AS anl_debit,
+                        COALESCE(SUM(l.credit),0) AS anl__credit,
+                        COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS anl_balance
+                    FROM account_move_line l
+                    JOIN account_move m ON (l.move_id=m.id)
+                    JOIN account_account a ON (l.account_id=a.id)
+                    JOIN account_analytic_account anl ON (l.analytic_account_id=anl.id)
+                    LEFT JOIN res_currency c ON (l.currency_id=c.id)
+                    LEFT JOIN res_partner p ON (l.partner_id=p.id)
+                    JOIN account_journal j ON (l.journal_id=j.id)
+                    WHERE %s
+                    GROUP BY account_id,l.analytic_account_id
+                """
+            )
+            % where_clause
+        )
+        return analytic_account_query
+
     def process_data(self, data):
         if data:
             cr = self.env.cr
@@ -423,6 +448,14 @@ class InsTrialBalance(models.TransientModel):
             if data.get("journal_ids", []):
                 WHERE += " AND j.id IN %s" % str(
                     tuple(data.get("journal_ids")) + tuple([0])
+                )
+
+            if not data.get("analytic_ids"):
+                data["analytic_ids"] = self._get_analytic_account().ids
+
+            if data.get("analytic_ids", []):
+                WHERE += " AND anl.id IN %s" % str(
+                    tuple(data.get("analytic_ids")) + tuple([0])
                 )
 
             if data.get("company_id", False):
@@ -435,18 +468,11 @@ class InsTrialBalance(models.TransientModel):
             company_currency_id = self.env.company.currency_id
 
             analytic_dict_data = {}
+            retained_analytic_dict_data = {}
             analytic_dict_name_data = {}
             total_analytic_dict_data = {}
             aa_obj = self.env["account.analytic.account"]
             data.get("analytic_ids").sort()
-
-            if not data.get("analytic_ids"):
-                data["analytic_ids"] = self._get_analytic_account().ids
-
-            if data.get("analytic_ids", []):
-                WHERE += " AND anl.id IN %s" % str(
-                    tuple(data.get("analytic_ids")) + tuple([0])
-                )
 
             analytic_datas = aa_obj.browse(data.get("analytic_ids", []))
             for analytic_acc_id in analytic_datas:
@@ -454,6 +480,13 @@ class InsTrialBalance(models.TransientModel):
                     {analytic_acc_id.id: analytic_acc_id.name}
                 )
                 analytic_dict_data.update(
+                    {
+                        "%s-debit" % analytic_acc_id.id: 0.0,
+                        "%s-credit" % analytic_acc_id.id: 0.0,
+                        "%s-balance" % analytic_acc_id.id: 0.0,
+                    }
+                )
+                retained_analytic_dict_data.update(
                     {
                         "%s-debit" % analytic_acc_id.id: 0.0,
                         "%s-credit" % analytic_acc_id.id: 0.0,
@@ -504,6 +537,8 @@ class InsTrialBalance(models.TransientModel):
                 )
                 WHERE_INIT = WHERE + " AND l.date < '%s'" % data.get("date_from")
                 WHERE_INIT += " AND l.account_id = %s" % account.id
+                if account.user_type_id.internal_group in ("income", "expense"):
+                    WHERE_INIT += " AND l.date >= '2023-04-01' "
 
                 init_blns = 0.0
                 deb = 0.0
@@ -543,17 +578,20 @@ class InsTrialBalance(models.TransientModel):
                     move_lines[account.code]["initial_credit"] = init_blns[
                         "initial_credit"
                     ]
+                if account.user_type_id.include_initial_balance and self.strict_range:
+                    move_lines[account.code]["initial_balance"] = 0.0
+                    move_lines[account.code]["initial_debit"] = 0.0
+                    move_lines[account.code]["initial_credit"] = 0.0
 
-                if (
-                    account.user_type_id.include_initial_balance
-                    and self.strict_range
-                    and account.user_type_id
-                    != self.env.ref("account.data_unaffected_earnings")
-                    and init_blns
-                ):
-                    retained_earnings += init_blns["initial_balance"]
-                    retained_credit += init_blns["initial_credit"]
-                    retained_debit += init_blns["initial_debit"]
+                    if (
+                        self.strict_range
+                        and account.user_type_id
+                        != self.env.ref("account.data_unaffected_earnings")
+                        and init_blns
+                    ):
+                        retained_earnings += init_blns["initial_balance"]
+                        retained_credit += init_blns["initial_credit"]
+                        retained_debit += init_blns["initial_debit"]
                 if init_blns:
                     total_init_deb += init_blns["initial_debit"]
                     total_init_cre += init_blns["initial_credit"]
@@ -603,29 +641,13 @@ class InsTrialBalance(models.TransientModel):
                 WHERE_ANL_CLOSING = WHERE + " AND l.date <= '%s'" % data.get("date_to")
                 WHERE_ANL_CLOSING += " AND l.account_id = %s" % account.id
 
-                sql = (
-                    (
-                        """
-                    SELECT
-                        account_id as id,
-                        l.analytic_account_id as anl_id,
-                        COALESCE(SUM(l.debit),0) AS anl_debit,
-                        COALESCE(SUM(l.credit),0) AS anl__credit,
-                        COALESCE(SUM(l.debit),0) - COALESCE(SUM(l.credit),0) AS anl_balance
-                    FROM account_move_line l
-                    JOIN account_move m ON (l.move_id=m.id)
-                    JOIN account_account a ON (l.account_id=a.id)
-                    JOIN account_analytic_account anl ON (l.analytic_account_id=anl.id)
-                    LEFT JOIN res_currency c ON (l.currency_id=c.id)
-                    LEFT JOIN res_partner p ON (l.partner_id=p.id)
-                    JOIN account_journal j ON (l.journal_id=j.id)
-                    WHERE %s
-                    GROUP BY account_id,l.analytic_account_id
-                """
-                    )
-                    % WHERE_ANL_CLOSING
+                if account.user_type_id.internal_group in ("income", "expense"):
+                    WHERE_ANL_CLOSING += " AND l.date >= '2023-04-01' "
+
+                analytic_account_sql = self._get_analytic_account_query(
+                    WHERE_ANL_CLOSING
                 )
-                cr.execute(sql)
+                cr.execute(analytic_account_sql)
                 for anl_data in cr.dictfetchall():
                     move_lines[account.code][
                         "%s-debit" % anl_data.get("anl_id")
@@ -636,7 +658,11 @@ class InsTrialBalance(models.TransientModel):
                     move_lines[account.code][
                         "%s-balance" % anl_data.get("anl_id")
                     ] = anl_data.get("anl_balance", 0.0)
-                    if total_analytic_dict_data:
+                    if (
+                        total_analytic_dict_data
+                        and anl_data.get("anl_balance")
+                        and data.get("display_accounts") == "balance_not_zero"
+                    ):
                         total_analytic_dict_data[
                             "%s-total_debit" % anl_data.get("anl_id")
                         ] += anl_data.get("anl_debit", 0.0)
@@ -646,6 +672,35 @@ class InsTrialBalance(models.TransientModel):
                         total_analytic_dict_data[
                             "%s-total_balance" % anl_data.get("anl_id")
                         ] += anl_data.get("anl_balance", 0.0)
+                    elif data.get("display_accounts") != "balance_not_zero":
+                        total_analytic_dict_data[
+                            "%s-total_debit" % anl_data.get("anl_id")
+                        ] += anl_data.get("anl_debit", 0.0)
+                        total_analytic_dict_data[
+                            "%s-total_credit" % anl_data.get("anl_id")
+                        ] += anl_data.get("anl__credit", 0.0)
+                        total_analytic_dict_data[
+                            "%s-total_balance" % anl_data.get("anl_id")
+                        ] += anl_data.get("anl_balance", 0.0)
+
+                unallocated_analytic_account_sql = self._get_analytic_account_query(
+                    WHERE_INIT
+                )
+                cr.execute(unallocated_analytic_account_sql)
+                unallocated_analytic_account_lines = cr.dictfetchall()
+                for un_anl_data in unallocated_analytic_account_lines:
+                    if self.strict_range and account.user_type_id != self.env.ref(
+                        "account.data_unaffected_earnings"
+                    ):
+                        retained_analytic_dict_data[
+                            "%s-debit" % un_anl_data.get("anl_id")
+                        ] = un_anl_data.get("anl_debit")
+                        retained_analytic_dict_data[
+                            "%s-credit" % un_anl_data.get("anl_id")
+                        ] = un_anl_data.get("anl__credit")
+                        retained_analytic_dict_data[
+                            "%s-balance" % un_anl_data.get("anl_id")
+                        ] = un_anl_data.get("anl_balance")
 
                 if init_blns:
                     end_blns = init_blns["initial_balance"] + bln
@@ -680,23 +735,23 @@ class InsTrialBalance(models.TransientModel):
                     total_bln += bln
 
             if self.strict_range:
-                retained = {
-                    "RETAINED": {
-                        "name": "Unallocated Earnings",
-                        "code": "",
-                        "id": "RET",
-                        "initial_credit": company_currency_id.round(retained_credit),
-                        "initial_debit": company_currency_id.round(retained_debit),
-                        "initial_balance": company_currency_id.round(retained_earnings),
-                        "credit": 0.0,
-                        "debit": 0.0,
-                        "balance": 0.0,
-                        "ending_credit": company_currency_id.round(retained_credit),
-                        "ending_debit": company_currency_id.round(retained_debit),
-                        "ending_balance": company_currency_id.round(retained_earnings),
-                        "company_currency_id": company_currency_id.id,
-                    }
+                retained_vals = {
+                    "name": "Unallocated Earnings",
+                    "code": "",
+                    "id": "RET",
+                    "initial_credit": company_currency_id.round(retained_credit),
+                    "initial_debit": company_currency_id.round(retained_debit),
+                    "initial_balance": company_currency_id.round(retained_earnings),
+                    "credit": 0.0,
+                    "debit": 0.0,
+                    "balance": 0.0,
+                    "ending_credit": company_currency_id.round(retained_credit),
+                    "ending_debit": company_currency_id.round(retained_debit),
+                    "ending_balance": company_currency_id.round(retained_earnings),
+                    "company_currency_id": company_currency_id.id,
                 }
+                retained_vals.update(retained_analytic_dict_data)
+                retained = {"RETAINED": retained_vals}
 
             subtotal_val = {
                 "name": "Total",

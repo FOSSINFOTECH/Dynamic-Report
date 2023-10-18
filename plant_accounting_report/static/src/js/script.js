@@ -132,7 +132,6 @@ odoo.define("plant_accounting_report.DynamicTbMainAA", function (require) {
                             formatOptions,
                             k[aa_name] < 0 ? "-" : ""
                         );
-                        console.log("/k[aa_name]", k[aa_name], aa_name, k);
                     }
                     k.balance_cmp = self.formatWithSign(
                         k.balance_cmp,
@@ -551,6 +550,17 @@ odoo.define("plant_accounting_report.DynamicTbMainAA", function (require) {
                         formatOptions,
                         k.ending_balance < 0 ? "-" : ""
                     );
+
+                    const aa_bal = "-balance";
+                    const aa_credit = "-credit";
+                    const aa_debit = "-debit";
+                    for (const aa_name in self.dr_cr_bal_dict) {
+                        k[aa_name] = self.formatWithSign(
+                            k[aa_name],
+                            formatOptions,
+                            k[aa_name] < 0 ? "-" : ""
+                        );
+                    }
 
                     for (const aa_name in self.total_dr_cr_bal_dict) {
                         k[aa_name] = self.formatWithSign(
