@@ -532,6 +532,7 @@ class InsTrialBalance(models.TransientModel):
             total_init_cre = 0.0
             total_init_bal = 0.0
             for account in account_ids:
+                is_account = True
                 currency = (
                     account.company_id.currency_id or self.env.company.currency_id
                 )
@@ -565,19 +566,13 @@ class InsTrialBalance(models.TransientModel):
                     )
                     % WHERE_INIT
                 )
-
                 cr.execute(sql)
                 init_blns = cr.dictfetchone()
-                if init_blns:
-                    move_lines[account.code]["initial_balance"] = init_blns[
-                        "initial_balance"
-                    ]
-                    move_lines[account.code]["initial_debit"] = init_blns[
-                        "initial_debit"
-                    ]
-                    move_lines[account.code]["initial_credit"] = init_blns[
-                        "initial_credit"
-                    ]
+                move_lines[account.code]["initial_balance"] = init_blns[
+                    "initial_balance"
+                ]
+                move_lines[account.code]["initial_debit"] = init_blns["initial_debit"]
+                move_lines[account.code]["initial_credit"] = init_blns["initial_credit"]
                 if account.user_type_id.include_initial_balance and self.strict_range:
                     move_lines[account.code]["initial_balance"] = 0.0
                     move_lines[account.code]["initial_debit"] = 0.0
@@ -592,10 +587,9 @@ class InsTrialBalance(models.TransientModel):
                         retained_earnings += init_blns["initial_balance"]
                         retained_credit += init_blns["initial_credit"]
                         retained_debit += init_blns["initial_debit"]
-                if init_blns:
-                    total_init_deb += init_blns["initial_debit"]
-                    total_init_cre += init_blns["initial_credit"]
-                    total_init_bal += init_blns["initial_balance"]
+                total_init_deb += init_blns["initial_debit"]
+                total_init_cre += init_blns["initial_credit"]
+                total_init_bal += init_blns["initial_balance"]
                 WHERE_CURRENT = (
                     WHERE
                     + " AND l.date >= '%s'" % data.get("date_from")
@@ -629,40 +623,57 @@ class InsTrialBalance(models.TransientModel):
                 move_lines[account.code]["debit"] = deb
                 move_lines[account.code]["credit"] = cre
                 move_lines[account.code]["balance"] = bln
-                if init_blns:
-                    end_blns = init_blns["initial_balance"] + bln
-                    end_cr = init_blns["initial_credit"] + cre
-                    end_dr = init_blns["initial_debit"] + deb
+                end_blns = init_blns["initial_balance"] + bln
+                end_cr = init_blns["initial_credit"] + cre
+                end_dr = init_blns["initial_debit"] + deb
 
                 move_lines[account.code]["ending_balance"] = end_blns
                 move_lines[account.code]["ending_credit"] = end_cr
                 move_lines[account.code]["ending_debit"] = end_dr
+
+                if data.get("display_accounts") == "balance_not_zero":
+                    if end_blns:  # debit or credit exist
+                        total_deb += deb
+                        total_cre += cre
+                        total_bln += bln
+                    elif bln:
+                        # continue
+                        total_deb += deb
+                        total_cre += cre
+                        total_bln += bln
+
+                    else:
+                        move_lines.pop(account.code)
+                        is_account = False
+                        total_init_deb -= init_blns["initial_debit"]
+                        total_init_cre -= init_blns["initial_credit"]
+                        total_init_bal -= init_blns["initial_balance"]
+
+                else:
+                    total_deb += deb
+                    total_cre += cre
+                    total_bln += bln
 
                 WHERE_ANL_CLOSING = WHERE + " AND l.date <= '%s'" % data.get("date_to")
                 WHERE_ANL_CLOSING += " AND l.account_id = %s" % account.id
 
                 if account.user_type_id.internal_group in ("income", "expense"):
                     WHERE_ANL_CLOSING += " AND l.date >= '2023-04-01' "
-
-                analytic_account_sql = self._get_analytic_account_query(
-                    WHERE_ANL_CLOSING
-                )
-                cr.execute(analytic_account_sql)
-                for anl_data in cr.dictfetchall():
-                    move_lines[account.code][
-                        "%s-debit" % anl_data.get("anl_id")
-                    ] = anl_data.get("anl_debit", 0.0)
-                    move_lines[account.code][
-                        "%s-credit" % anl_data.get("anl_id")
-                    ] = anl_data.get("anl__credit", 0.0)
-                    move_lines[account.code][
-                        "%s-balance" % anl_data.get("anl_id")
-                    ] = anl_data.get("anl_balance", 0.0)
-                    if (
-                        total_analytic_dict_data
-                        and anl_data.get("anl_balance")
-                        and data.get("display_accounts") == "balance_not_zero"
-                    ):
+                if is_account:
+                    analytic_account_sql = self._get_analytic_account_query(
+                        WHERE_ANL_CLOSING
+                    )
+                    cr.execute(analytic_account_sql)
+                    for anl_data in cr.dictfetchall():
+                        move_lines[account.code][
+                            "%s-debit" % anl_data.get("anl_id")
+                        ] = anl_data.get("anl_debit", 0.0)
+                        move_lines[account.code][
+                            "%s-credit" % anl_data.get("anl_id")
+                        ] = anl_data.get("anl__credit", 0.0)
+                        move_lines[account.code][
+                            "%s-balance" % anl_data.get("anl_id")
+                        ] = anl_data.get("anl_balance", 0.0)
                         total_analytic_dict_data[
                             "%s-total_debit" % anl_data.get("anl_id")
                         ] += anl_data.get("anl_debit", 0.0)
@@ -672,17 +683,6 @@ class InsTrialBalance(models.TransientModel):
                         total_analytic_dict_data[
                             "%s-total_balance" % anl_data.get("anl_id")
                         ] += anl_data.get("anl_balance", 0.0)
-                    elif data.get("display_accounts") != "balance_not_zero":
-                        total_analytic_dict_data[
-                            "%s-total_debit" % anl_data.get("anl_id")
-                        ] += anl_data.get("anl_debit", 0.0)
-                        total_analytic_dict_data[
-                            "%s-total_credit" % anl_data.get("anl_id")
-                        ] += anl_data.get("anl__credit", 0.0)
-                        total_analytic_dict_data[
-                            "%s-total_balance" % anl_data.get("anl_id")
-                        ] += anl_data.get("anl_balance", 0.0)
-
                 unallocated_analytic_account_sql = self._get_analytic_account_query(
                     WHERE_INIT
                 )
@@ -701,38 +701,6 @@ class InsTrialBalance(models.TransientModel):
                         retained_analytic_dict_data[
                             "%s-balance" % un_anl_data.get("anl_id")
                         ] = un_anl_data.get("anl_balance")
-
-                if init_blns:
-                    end_blns = init_blns["initial_balance"] + bln
-                    end_cr = init_blns["initial_credit"] + cre
-                    end_dr = init_blns["initial_debit"] + deb
-
-                move_lines[account.code]["ending_balance"] = end_blns
-                move_lines[account.code]["ending_credit"] = end_cr
-                move_lines[account.code]["ending_debit"] = end_dr
-
-                if data.get("display_accounts") == "balance_not_zero":
-                    if end_blns:  # debit or credit exist
-                        total_deb += deb
-                        total_cre += cre
-                        total_bln += bln
-                    elif bln:
-                        # continue
-                        total_deb += deb
-                        total_cre += cre
-                        total_bln += bln
-
-                    else:
-                        if init_blns:
-                            move_lines.pop(account.code)
-                            total_init_deb -= init_blns["initial_debit"]
-                            total_init_cre -= init_blns["initial_credit"]
-                            total_init_bal -= init_blns["initial_balance"]
-
-                else:
-                    total_deb += deb
-                    total_cre += cre
-                    total_bln += bln
 
             if self.strict_range:
                 retained_vals = {
@@ -768,7 +736,6 @@ class InsTrialBalance(models.TransientModel):
                 "ending_balance": company_currency_id.round(total_init_bal + total_bln),
                 "company_currency_id": company_currency_id.id,
             }
-
             subtotal_val.update(total_analytic_dict_data)
             subtotal = {"SUBTOTAL": subtotal_val}
 

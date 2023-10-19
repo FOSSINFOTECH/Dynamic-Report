@@ -1,16 +1,16 @@
 # See LICENSE file for full copyright and licensing details.
 {
-    "name": "Plant Financial Reports",
-    "version": "13.1.0.0",
+    "name": "Analytic Accounts based Financial Reports",
+    "version": "13.0.1.0.0",
     "summary": "Trial Balance ,Balance Sheet and Profit & Loss Plant Wise",
     "sequence": 15,
     "description": """
-                    Odoo 13 Accouning Reports, Odoo 13 All in one Accouning for Trial Balance, Balance Sheet, Profit and Loss based on Plant Wise,
+                    Accouning Reports, All in one Accouning for Trial Balance, Balance Sheet, Profit and Loss based on Analytic Accounts,
                     """,
     "category": "Accounting/Accounting",
-    "author": "Serpent Consulting Services Pvt Ltd",
-    "maintainer": "Serpent Consulting Services Pvt Ltd",
-    "website": "https://www.serpentcs.com/",
+    "author": "Foss Infotech",
+    "maintainer": "Foss Infotech Pvt Ltd",
+    "website": "http://www.fossinfotech.com/",
     "depends": ["report_xlsx", "account_dynamic_reports"],
     "data": [
         "views/account_analytic_account_views.xml",
